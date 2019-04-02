@@ -11,7 +11,7 @@ class Recurrence
     const TYPE_MONTHLY = 'monthly';
 
     /**
-     * Limit for the forever ends_at
+     * Limit for a "forever" option
      */
     const LIMIT = '20 years';
 
