@@ -3,17 +3,23 @@
 namespace Dunice;
 
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Lang;
-use Illuminate\Support\Facades\Validator;
 
 class Recurrence
 {
-    const TYPE_DAILY           = 'daily';
-    const TYPE_WEEKLY          = 'weekly';
-    const TYPE_MONTHLY         = 'monthly';
-    const LIMIT                = '20 years';
-    const MONTHLY_REPEAT_WEEK  = 'day-of-week';
-    const MONTHLY_REPEAT_MONTH = 'day-of-month';
+    const TYPE_DAILY   = 'daily';
+    const TYPE_WEEKLY  = 'weekly';
+    const TYPE_MONTHLY = 'monthly';
+
+    /**
+     * Limit for the forever ends_at
+     */
+    const LIMIT = '20 years';
+
+    /**
+     * Monthly repeat
+     */
+    const MONTHLY_REPEAT_DAY_OF_MONTH = 'day-of-week';
+    const MONTHLY_REPEAT_DAY_OF_WEEK  = 'day-of-month';
 
     /**
      * Days
@@ -40,35 +46,31 @@ class Recurrence
     /**
      * @var Carbon
      */
-    private $initial = null;
+    protected $from;
 
     /**
      * @var string
      */
-    private $type = self::TYPE_DAILY;
+    protected $type = self::TYPE_DAILY;
 
     /**
      * @var int
      */
-    private $interval = 1;
+    protected $interval = 1;
 
     /**
      * @var Carbon
      */
-    private $limit = self::LIMIT;
+    protected $limit = self::LIMIT;
 
     /**
      * @var null
      */
-    private $repeat = null;
+    protected $repeat;
 
-    public function __construct()
+    public function __construct(array $arr)
     {
-        $this->setInterval()
-            ->setInitial()
-            ->setLimit()
-            ->setRepeat()
-            ->setType();
+        $this->fromArray($arr);
     }
 
     /**
@@ -89,14 +91,14 @@ class Recurrence
     }
 
     /**
-     * @param null $initial
+     * @param null $from
      *
      * @return $this
      */
-    public function setInitial($initial = null, $timezone = 'UTC')
+    public function setFrom($from = null, $timezone = 'UTC')
     {
-        $this->initial = $initial
-            ? new Carbon($initial, $timezone)
+        $this->from = $from
+            ? new Carbon($from, $timezone)
             : new Carbon();
 
         return $this;
@@ -176,17 +178,15 @@ class Recurrence
 
     public function run()
     {
-        $this->validate();
-
         $this->limit->endOfDay();
 
-        return $this->{$this->type}();
+        return call_user_func_array([$this, $this->type], []);
     }
 
-    private function daily()
+    protected function daily()
     {
         $dates    = [];
-        $next     = $this->initial;
+        $next     = $this->from;
         $interval = $this->interval >= 1 ? $this->interval : 1;
 
         while ($next->getTimestamp() <= $this->limit->getTimestamp()) {
@@ -200,11 +200,11 @@ class Recurrence
         return $dates;
     }
 
-    private function weekly()
+    protected function weekly()
     {
         $dates    = [];
-        $original = $this->initial;
-        $next     = $this->initial->copy();
+        $original = $this->from;
+        $next     = $this->from->copy();
         $interval = $this->interval >= 1 ? $this->interval : 1;
         $counter  = 0;
 
@@ -228,31 +228,30 @@ class Recurrence
         return $dates;
     }
 
-    private function monthly()
+    protected function monthly()
     {
-        $original = $this->initial;
-        $next     = $this->initial->copy();
+        $original = $this->from;
+        $next = $this->from->copy();
         $interval = $this->interval >= 1 ? $this->interval : 1;
-        $dates    = [];
-        $reset    = false;
+        $dates = [];
 
         while ($next->getTimestamp() <= $this->limit->getTimestamp()) {
             switch ($this->repeat) {
                 default:
-                case self::MONTHLY_REPEAT_MONTH:
+                case self::MONTHLY_REPEAT_DAY_OF_WEEK:
                     $checker = clone $next;
                     $checker->addMonth($interval);
 
                     if($checker->day !== $original->day) {
                         $next->addMonth($interval * 2);
-                        continue;
+                        continue 2;
                     }
 
                     $next->addMonth($interval);
 
                     break;
 
-                case self::MONTHLY_REPEAT_WEEK:
+                case self::MONTHLY_REPEAT_DAY_OF_MONTH:
                     $next->startOfMonth()->addMonth($interval);
 
                     if(!$next->nthOfMonth($original->weekOfMonth, $original->dayOfWeek)) {
@@ -268,33 +267,5 @@ class Recurrence
         }
 
         return $dates;
-    }
-
-    public function validate()
-    {
-        if(
-            $this->type !== self::TYPE_DAILY
-            && $this->type !== self::TYPE_MONTHLY
-            && $this->type !== self::TYPE_WEEKLY
-        ) {
-            throw new \Exception(Lang::get('flight.invalidRecurrenceType'));
-        }
-
-        $recurrence     = [
-            'type' => $this->type,
-        ];
-        $fieldsValidate = [
-            'ends_at' => 'date|date_format:Y-m-d',
-        ];
-
-        if($this->type === self::TYPE_MONTHLY) {
-            $fieldsValidate['repeat'] = 'in:' . self::MONTHLY_REPEAT_WEEK . ',' . self::MONTHLY_REPEAT_MONTH;
-            $recurrence['repeat']     = $this->repeat;
-        }
-
-        $validator = Validator::make($recurrence, $fieldsValidate);
-        if ($validator->fails()) {
-            throw new \Exception($validator->messages());
-        }
     }
 }
